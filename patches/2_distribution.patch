@@ -1,0 +1,25 @@
+diff --git a/build.gradle b/build.gradle
+index 9ce544a..9f8037b 100644
+--- a/build.gradle
++++ b/build.gradle
+@@ -276,3 +276,20 @@ tasks.register("coverage", JavaExec) {
+             "--html", "$buildDir/jacoco-report"
+     ]
+ }
++
++tasks.register("createDist", Tar) {
++    def arch = System.getProperty("os.arch")
++    String platform;
++    if (Os.isFamily(Os.FAMILY_WINDOWS)) {
++        platform = "windows"
++    } else if (Os.isFamily(Os.FAMILY_MAC)) {
++        platform = "macos"
++    } else {
++        platform = "linux"
++    }
++    archiveBaseName = "openjdk-23-jextract"
++    archiveClassifier = "${platform}_$arch"
++    compression = Compression.GZIP
++    archiveExtension = "tar.gz"
++    from(tasks.createJextractImage)
++}

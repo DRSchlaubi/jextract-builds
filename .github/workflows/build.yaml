@@ -1,0 +1,122 @@
+name: Build and Push
+
+on:
+    workflow_dispatch:
+    push:
+
+jobs:
+    build:
+        strategy:
+            matrix:
+                platform: [windows-11-arm, windows-2025, ubuntu-latest, ubuntu-24.04-arm, macos-15, macos-13]
+        runs-on: ${{ matrix.platform }}
+        steps:
+            - name: Download jextract
+              uses: actions/checkout@v4
+              with:
+                repository: openjdk/jextract
+            - name: Download Patches
+              uses: actions/checkout@v4
+              with:
+                path: repo
+            - name: Apply patches
+              shell: bash
+              run: |
+                for patch in repo/patches/*.patch; do
+                  git apply "$patch"
+                done
+            - name: Setup Jextract JDK
+              uses: actions/setup-java@v4
+              with:
+                distribution: ${{ matrix.platform == 'windows-11-arm' && 'liberica' || 'oracle' }}
+                java-version: 24
+            - name: Setup Gradle JDK
+              uses: actions/setup-java@v4
+              with:
+                distribution: 'zulu'
+                java-version: 21        
+            - uses: gradle/actions/setup-gradle@v4
+            - name: Setup LLVM (MacOS)
+              if: startsWith(matrix.platform, 'macos')
+              run: |
+                brew install llvm@18
+                echo "LLVM_HOME=$(brew --prefix llvm@18)" >> $GITHUB_ENV
+            - name: Setup libtinfo5 (Ubuntu)
+              if: matrix.platform == 'ubuntu-latest'
+              run: |
+                curl -L -o libtinfo.deb http://launchpadlibrarian.net/371711898/libtinfo5_6.1-1ubuntu1.18.04_amd64.deb
+                sudo dpkg -i libtinfo.deb
+            - name: Setup libtinfo5 (Ubuntu ARM)
+              if: matrix.platform == 'ubuntu-24.04-arm'
+              run: |
+                curl -L -o libtinfo.deb http://launchpadlibrarian.net/371711519/libtinfo5_6.1-1ubuntu1.18.04_arm64.deb
+                sudo dpkg -i libtinfo.deb
+            - name: Setup LLVM (Ubuntu)
+              if: startsWith(matrix.platform, 'ubuntu')
+              run: |
+                sudo apt install llvm llvm-dev libclang-dev
+                echo "LLVM_HOME=$(llvm-config --prefix)" >> $GITHUB_ENV
+            - name: Install LLVM (Windows on arm)
+              # Wait for https://github.com/actions/partner-runner-images/issues/90 to get fixed and remove this
+              if: matrix.platform == 'windows-11-arm'
+              run: |
+                curl -L -o llvm.exe https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.8/LLVM-18.1.8-woa64.exe
+                7z x llvm.exe "-ollvm"
+
+                echo "LLVM_HOME=$(Get-Location)\llvm" >> $env:GITHUB_ENV
+            - name: Setup LLVM (Windows)
+              if: matrix.platform == 'windows-2025'
+              shell: bash
+              run: echo "LLVM_HOME=C:\Program Files\LLVM" >> $GITHUB_ENV
+            - name: Setup JDK location (ARM)
+              if: contains(matrix.platform, 'arm') || matrix.platform == 'macos-15'
+              shell: bash
+              run: echo "JDK=${{ env.JAVA_HOME_24_ARM64 }}" >> $GITHUB_ENV
+            - name: Setup JDK location (X86)
+              if: matrix.platform == 'windows-2025' || matrix.platform == 'macos-13' || matrix.platform == 'ubuntu-latest'
+              shell: bash
+              run: echo "JDK=${{ env.JAVA_HOME_24_X64 }}" >> $GITHUB_ENV
+            - name: Make Gradle executable
+              if: contains(matrix.platform, 'macos') || contains(matrix.platform, 'ubuntu')
+              run: chmod +x gradlew
+            - run: ./gradlew -Pjdk_home="${{env.JDK}}" -Pllvm_home="${{ env.LLVM_HOME }}" verify createDist
+            - name: Upload artifacts
+              uses: actions/upload-artifact@v4
+              with:
+                name: artifacts-${{ matrix.platform }}
+                path: build/distributions/*.tar.gz
+    publish:
+      needs: build
+      runs-on: ubuntu-latest
+      steps:
+        - name: Download Windows Artifacts
+          uses: actions/download-artifact@v4
+          with:
+            name: artifacts-windows-2025
+        - name: Download Windows on Arm Artifacts
+          uses: actions/download-artifact@v4
+          with:
+            name: artifacts-windows-11-arm
+        - name: Download Ubuntu Artifacts
+          uses: actions/download-artifact@v4
+          with:
+            name: artifacts-ubuntu-latest
+        - name: Download Ubuntu ARM Artifacts
+          uses: actions/download-artifact@v4
+          with:
+            name: artifacts-ubuntu-24.04-arm
+        - name: Download Macos arm Artifacts
+          uses: actions/download-artifact@v4
+          with:
+            name: artifacts-macos-15
+        - name: Download Macos Artifacts
+          uses: actions/download-artifact@v4
+          with:
+            name: artifacts-macos-13
+        - name: Release
+          uses: softprops/action-gh-release@v2
+          with:
+            tag_name: ${{ github.run_id }}
+            files: "*.tar.gz"
+
+

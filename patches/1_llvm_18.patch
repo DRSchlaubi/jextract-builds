@@ -1,0 +1,22 @@
+diff --git a/build.gradle b/build.gradle
+index 9ce544a..31bbdb9 100644
+--- a/build.gradle
++++ b/build.gradle
+@@ -76,7 +76,7 @@ task copyLibClang(type: Sync) {
+     // make sure we only pick up the "real" shared library file from LLVM installation
+     // (e.g. exclude symlinks on Linux)
+     def clang_path_include = (Os.isFamily(Os.FAMILY_UNIX) && !Os.isFamily(Os.FAMILY_MAC)) ?
+-            "libclang.so.${clang_version}" : "*clang*"
++            "libclang-${clang_version}.so" : "*clang*"
+ 
+     from("${libclang_dir}") {
+         include(clang_path_include)
+@@ -84,7 +84,7 @@ task copyLibClang(type: Sync) {
+         exclude("clang.exe")
+         into("libs")
+         // make sure we drop shared library version name (Linux only)
+-        rename("libclang.so.${clang_version}", "libclang.so")
++        rename("libclang-${clang_version}.so", "libclang.so")
+     }
+ 
+     from("$clang_include_dir") {
